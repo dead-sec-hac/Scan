@@ -7,7 +7,7 @@ import json
 
 # --- Configuration ---
 # Define your base API URL here. This will be prepended to all detected paths.
-BASE_API_URL = "https://17bb4cecd578.ngrok-free.app"
+BASE_API_URL = "https://3b0891a125dc.ngrok-free.app"
 # --- End Configuration ---
 
 def get_current_branch_name():
