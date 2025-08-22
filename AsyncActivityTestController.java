@@ -11,7 +11,7 @@ private IAsyncActivityAdminService asyncActivityAdminService;
 // Changed endpoint to "/rerun" for testing
 @GetMapping("/rerun")
 public ResponseEntity<String> reRunAsyncActivity(
-@RequestParam("activityId") String activityId, // update in retool as well!
+@RequestParam("activityIds") String activityId, // update in retool as well!
 @RequestParam("asyncActivityKey") String asyncActivityKey)
 throws UnauthorizedErrorException, IOException {
 
