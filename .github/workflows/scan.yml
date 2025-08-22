@@ -76,6 +76,7 @@ jobs:
           # cat nuclei_results.txt
           # Check if the results file is not empty (-s checks for size > 0)
           if [ -s nuclei_results.txt ]; then
+              echo "🔴 VULNERABILITIES FOUND! 🔴"
               exit 1 # This command fails the step and the job
           else
               echo "✅ No vulnerabilities were found in the API endpoints."
