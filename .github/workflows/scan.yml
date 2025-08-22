@@ -63,4 +63,14 @@ jobs:
           sudo mv nuclei /usr/local/bin/
 
           echo "✅ Nuclei installed. Version:"
-          nuclei -version
+          # nuclei -version
+          echo "🚀 Running Nuclei scan on detected endpoints..."
+          
+          # Extract only the URLs from the JSON file and feed them to Nuclei
+          jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
+          
+          # Run Nuclei with the list of URLs
+          nuclei -id http-missing-security-headers -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+          
+          echo "Nuclei scan complete. Results saved to nuclei_results.txt"
+          cat nuclei_results.txt
