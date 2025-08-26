@@ -1,5 +1,3 @@
-# scripts/extract_endpoints.py
-
 import subprocess
 import re
 import os
@@ -11,7 +9,6 @@ BASE_API_URL = "https://qa.com"
 # --- End Configuration ---
 
 def get_endpoints_from_file(file_path):
-    # This function remains the same as it correctly extracts endpoints from a single file.
     endpoints = []
     
     class_header_pattern = re.compile(
@@ -93,10 +90,7 @@ def main():
 
     try:
         with open(args.file_list, 'r') as f:
-            all_changed_files = [line.strip() for line in f if line.strip().endswith(".java")]
-            # Filter out files from the previous state directory
-            changed_files = [f for f in all_changed_files if not f.startswith('previous-state/')]
-            
+            changed_files = [line.strip() for line in f if line.strip().endswith(".java")]
     except FileNotFoundError:
         print(f"❌ Error: The file list '{args.file_list}' was not found.")
         return
