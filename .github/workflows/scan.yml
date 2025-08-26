@@ -1,5 +1,3 @@
-# .github/workflows/daily-api-scanner.yml
-
 name: Daily API Change Scanner
 
 on:
@@ -16,10 +14,9 @@ jobs:
       - name: Checkout latest repository code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history to ensure a complete state for comparison
+          fetch-depth: 0 # Fetch all history for a complete state comparison
 
-      - name: Download previous repository state (from artifact)
-        # This step downloads the artifact from the last successful run of this workflow.
+      - name: Download previous repository state
         run: |
           # Use the GitHub CLI to find and download the artifact from the last run.
           # The `gh` CLI tool is pre-installed on GitHub-hosted runners.
@@ -33,9 +30,10 @@ jobs:
           # The new GITHUB_OUTPUT method to set a step variable
           echo "diff_found=false" >> $GITHUB_OUTPUT
           
-          if [ -d "./previous-state/repo-state" ]; then
-            # If a previous state exists, compare the current state with the previous one
-            git diff --name-only $(git hash-object -t tree -w previous-state/repo-state) HEAD > changed_files.txt
+          if [ -d "./previous-state/previous-repo-state" ]; then
+            # The downloaded artifact unpacks into a subdirectory, so we need to reference its root.
+            # This git diff command correctly compares the current directory against the previous state.
+            git diff --name-only HEAD -- ./previous-state/previous-repo-state/ > changed_files.txt
             if [ -s changed_files.txt ]; then
               echo "diff_found=true" >> $GITHUB_OUTPUT
             fi
@@ -66,7 +64,7 @@ jobs:
           echo "🚀 Running Nuclei scan on detected endpoints..."
           if [ -s changed_endpoints.json ]; then
               jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
-              # nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+              nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
               
               echo "Nuclei scan complete. Results:"
               if [ -s nuclei_results.txt ]; then
