@@ -41,7 +41,7 @@ class UserProfileController {
     @PostMapping("/update")
     public String updateProfile(@RequestBody UserProfile profile) {
         // In real life: validate, sanitize, and update DB
-        System.out.println("Updating profiles foor: " + profile.getEmail());
+        System.out.println("Updating profiles for: " + profile.getEmail());
 
         return "User profile updated successfully for " + profile.getFirstName() + " " + profile.getLastName();
     }
