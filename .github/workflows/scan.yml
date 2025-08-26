@@ -4,8 +4,9 @@ name: Daily API Change Scanner
 
 on:
   schedule:
+    # Run once every day at 03:00 UTC (adjust as needed)
     - cron: '0 3 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Allows for manual runs from the UI
 
 jobs:
   daily-scan:
@@ -15,34 +16,68 @@ jobs:
       - name: Checkout latest repository code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Fetch all history to ensure a complete state for comparison
 
       - name: Download previous repository state (from artifact)
+        # This step downloads the artifact from the last successful run of this workflow.
         run: |
-          gh run download --repo ${{ github.repository }} --artifact previous-repo-state --dir ./previous-state || echo "No previous artifact found, skipping download."
+          # Use the GitHub CLI to find and download the artifact from the last run.
+          # The `gh` CLI tool is pre-installed on GitHub-hosted runners.
+          gh run download --repo ${{ github.repository }} --name previous-repo-state --dir ./previous-state || echo "No previous artifact found, skipping download."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Compare with previous state and get changed files
-        id: get_diff
+        id: get_diff # Assign an ID to this step
         run: |
-          # Use the new GITHUB_OUTPUT method
+          # The new GITHUB_OUTPUT method to set a step variable
           echo "diff_found=false" >> $GITHUB_OUTPUT
           
           if [ -d "./previous-state/repo-state" ]; then
+            # If a previous state exists, compare the current state with the previous one
             git diff --name-only $(git hash-object -t tree -w previous-state/repo-state) HEAD > changed_files.txt
             if [ -s changed_files.txt ]; then
               echo "diff_found=true" >> $GITHUB_OUTPUT
             fi
           else
+            # If no previous state, assume all Java files are new (first run)
             find . -name "*.java" > changed_files.txt
             echo "diff_found=true" >> $GITHUB_OUTPUT
           fi
           
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Run Endpoint Extractor on changed files
         if: steps.get_diff.outputs.diff_found == 'true'
+        run: python scripts/extract_endpoints.py changed_files.txt
+
+      - name: Setup Nuclei and Scan Endpoints
+        if: steps.get_diff.outputs.diff_found == 'true'
         run: |
-          python scripts/extract_endpoints.py --files changed_files.txt
+          echo "✨ Installing Nuclei..."
+          sudo apt-get update && sudo apt-get install -y wget unzip jq
+          wget -q https://github.com/projectdiscovery/nuclei/releases/download/v2.9.8/nuclei_2.9.8_linux_amd64.zip -O nuclei.zip
+          unzip nuclei.zip
+          sudo mv nuclei /usr/local/bin/
+
+          echo "🚀 Running Nuclei scan on detected endpoints..."
+          if [ -s changed_endpoints.json ]; then
+              jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
+              # nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+              
+              echo "Nuclei scan complete. Results:"
+              if [ -s nuclei_results.txt ]; then
+                  cat nuclei_results.txt
+                  exit 1 # Fail the pipeline if vulnerabilities are found
+              else
+                  echo "✅ No vulnerabilities were found."
+              fi
+          else
+              echo "✅ No new endpoints were found to scan."
+          fi
 
       - name: Upload current repository state as artifact for next run
         # This is the crucial step that saves the current repository state to be used as a cache tomorrow
