@@ -4,7 +4,7 @@ on:
   schedule:
     # Run once every day at 03:00 UTC
     - cron: '0 3 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Allows for manual runs from the UI
 
 jobs:
   daily-scan:
@@ -14,10 +14,11 @@ jobs:
       - name: Checkout latest repository code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Fetch all history for a complete state comparison
 
       - name: Download previous repository state
         run: |
+          # The `gh` CLI tool is pre-installed on GitHub-hosted runners.
           gh run download --repo ${{ github.repository }} --name previous-repo-state --dir ./previous-state || echo "No previous artifact found, skipping download."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,20 +71,16 @@ jobs:
           else
               echo "✅ No new endpoints were found to scan."
           fi
-
-      - name: Upload current repository state as artifact for next run
-        # This is the crucial fix that prevents the recursive download issue.
+      
+      - name: Copy Clean Repo State
         run: |
-          # Create a temporary directory to save the new state
           mkdir -p new-repo-state
-          
-          # Copy only the files you want to keep (the repository's code)
           find . -maxdepth 1 -not -name 'previous-state' -not -name 'new-repo-state' -exec cp -r {} new-repo-state/ \;
-          
-          # Upload only the new temporary directory's contents
-          echo "Uploading clean repository state for next run."
+          echo "Created clean repository state in new-repo-state/"
+
+      - name: Upload Current Repository State as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: previous-repo-state
-          path: new-repo-state
+          path: new-repo-state/
           retention-days: 7
