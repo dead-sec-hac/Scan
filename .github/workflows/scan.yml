@@ -4,32 +4,21 @@ name: Daily API Change Scanner
 
 on:
   schedule:
-    # Run once every day at 03:00 UTC (adjust as needed)
     - cron: '0 3 * * *'
-  workflow_dispatch: # Allows for manual runs
+  workflow_dispatch:
 
 jobs:
   daily-scan:
     runs-on: ubuntu-latest
     
-    # We need to fetch the previous day's successful run to get its artifacts.
-    # We'll use this artifact to compare against the latest code.
-    env:
-      PREVIOUS_RUN_ID: ${{ github.event.workflow_run.id }} # Used to get the artifact from the previous run
-
     steps:
       - name: Checkout latest repository code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch all history to ensure a complete state
+          fetch-depth: 0
 
       - name: Download previous repository state (from artifact)
-        # This step downloads the artifact from the last successful run of this workflow.
-        # This is our 'cached' state to compare against.
         run: |
-          # Use the GitHub CLI to find and download the artifact from the last run
-          # This requires the GITHUB_TOKEN to be available in the step
-          # You can install the GH CLI via `sudo apt-get install gh` or use an action that provides it
           gh run download --repo ${{ github.repository }} --artifact previous-repo-state --dir ./previous-state || echo "No previous artifact found, skipping download."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -37,36 +26,28 @@ jobs:
       - name: Compare with previous state and get changed files
         id: get_diff
         run: |
-          # The GH CLI download puts the artifact in a directory, so we need to cd into it
+          # Use the new GITHUB_OUTPUT method
+          echo "diff_found=false" >> $GITHUB_OUTPUT
+          
           if [ -d "./previous-state/repo-state" ]; then
-            # If a previous state exists, compare the current state with the previous one
             git diff --name-only $(git hash-object -t tree -w previous-state/repo-state) HEAD > changed_files.txt
-            echo "::set-output name=diff_found::true"
+            if [ -s changed_files.txt ]; then
+              echo "diff_found=true" >> $GITHUB_OUTPUT
+            fi
           else
-            # If no previous state, assume all Java files are new
             find . -name "*.java" > changed_files.txt
-            echo "::set-output name=diff_found::true" # Treat as a change to initialize
+            echo "diff_found=true" >> $GITHUB_OUTPUT
           fi
-
+          
       - name: Run Endpoint Extractor on changed files
         if: steps.get_diff.outputs.diff_found == 'true'
         run: |
-          # Here, you would call your Python script, feeding it the list of changed files
-          # The Python script's logic would need to be updated to read from a file rather than git diff
           python scripts/extract_endpoints.py --files changed_files.txt
-
-      # ... (Add other processing steps, like running Nuclei on the found endpoints) ...
 
       - name: Upload current repository state as artifact for next run
         # This is the crucial step that saves the current repository state to be used as a cache tomorrow
-        run: |
-          # Create a temporary directory to save the current repository state
-          mkdir -p current-repo-state
-          git ls-files --full-tree -z | xargs -0 -I {} cp --parents {} current-repo-state/
-          
-          # Use actions/upload-artifact to save this state
-          actions/upload-artifact@v4
-          with:
-            name: previous-repo-state
-            path: current-repo-state
-            retention-days: 7 # Keep for a week
+        uses: actions/upload-artifact@v4
+        with:
+          name: previous-repo-state
+          path: .
+          retention-days: 7
