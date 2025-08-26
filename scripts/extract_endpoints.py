@@ -4,15 +4,16 @@ import subprocess
 import re
 import os
 import json
-import argparse # Import argparse for command-line arguments
+import argparse
 
 # --- Configuration ---
 BASE_API_URL = "https://qa.com"
 # --- End Configuration ---
 
 def get_endpoints_from_file(file_path):
-    # ... (This function remains the same as your previous version) ...
+    # This function remains the same as it correctly extracts endpoints from a single file.
     endpoints = []
+    
     class_header_pattern = re.compile(
         r'(?:@RestController|@Controller)\s*(?:\n?\s*@RequestMapping\("([^"]*)"\))?'
     )
@@ -31,7 +32,7 @@ def get_endpoints_from_file(file_path):
                     method_path = method_match.group(2)
                     http_method = method_type.replace("Mapping", "").upper()
                     if http_method == "REQUEST": http_method = "ANY"
-                    endpoints.append({"method": http_method, "path": method_path}) 
+                    endpoints.append({"method": http_method, "path": method_path})
                 return endpoints
 
             for i, controller_match in enumerate(controller_matches):
@@ -51,29 +52,29 @@ def get_endpoints_from_file(file_path):
                     method_path = method_match.group(2)
                     
                     combined_path = class_base_path
-                    if method_path: 
+                    if method_path:
                         if combined_path.endswith('/') and method_path.startswith('/'):
-                            combined_path += method_path[1:] 
+                            combined_path += method_path[1:]
                         elif not combined_path.endswith('/') and not method_path.startswith('/'):
-                            if combined_path: 
+                            if combined_path:
                                 combined_path += '/' + method_path
-                            else: 
+                            else:
                                 combined_path = method_path
-                        else: 
+                        else:
                             combined_path += method_path
                     
                     if not combined_path.startswith('/') and combined_path != "":
                         combined_path = '/' + combined_path
                     elif combined_path == "":
-                        combined_path = "/" 
+                        combined_path = "/"
 
                     http_method = method_type.replace("Mapping", "").upper()
-                    if http_method == "REQUEST": 
-                        http_method = "ANY" 
-                    
+                    if http_method == "REQUEST":
+                        http_method = "ANY"
+
                     endpoints.append({
                         "method": http_method,
-                        "path": combined_path 
+                        "path": combined_path
                     })
         return endpoints
     except FileNotFoundError:
@@ -84,28 +85,29 @@ def get_endpoints_from_file(file_path):
         return []
 
 def main():
-    # --- NEW: Use argparse to get the list of changed files ---
     parser = argparse.ArgumentParser(description="Extract endpoints from a list of changed Java files.")
     parser.add_argument('file_list', help="Path to a file containing a list of changed Java files.")
     args = parser.parse_args()
 
     print(f"🚀 Running endpoint detection from file list: {args.file_list}")
-    
-    # Read the list of changed files from the provided file
+
     try:
         with open(args.file_list, 'r') as f:
-            changed_files = [line.strip() for line in f if line.strip().endswith(".java")]
+            all_changed_files = [line.strip() for line in f if line.strip().endswith(".java")]
+            # Filter out files from the previous state directory
+            changed_files = [f for f in all_changed_files if not f.startswith('previous-state/')]
+            
     except FileNotFoundError:
         print(f"❌ Error: The file list '{args.file_list}' was not found.")
         return
 
     all_found_endpoints = []
-    
+
     if not changed_files:
         print("✅ No Java files changed in the latest commit.")
     else:
         print(f"\n📂 Processing {len(changed_files)} changed Java file(s):")
-        
+
         for file_path in changed_files:
             if not os.path.exists(file_path):
                 print(f" Skipping deleted file: {file_path}")
@@ -119,31 +121,24 @@ def main():
                 for ep in endpoints_in_file:
                     full_url = f"{BASE_API_URL}{ep['path']}"
                     print(f"  ➡️ {ep['method']} {full_url}")
-                    
-                    ep['path'] = full_url 
+
+                    ep['path'] = full_url
                     all_found_endpoints.append(ep)
             else:
                 print(f"⚠️ No API endpoints found in changed file: {file_path}")
-                
+
     if not all_found_endpoints:
         print("\n✅ No API endpoints were found in any of the changed Java files.")
     else:
         print(f"\nSummary: Successfully found {len(all_found_endpoints)} endpoint(s) in total from changed files.")
 
-    output_file = os.getenv('GITHUB_OUTPUT')
-    with open(output_file, "a") as f:
-        if all_found_endpoints:
-            print(f"endpoints_found=true", file=f)
-            output_filename = "changed_endpoints.json"
-            try:
-                with open(output_filename, "w") as json_f:
-                    json.dump(all_found_endpoints, json_f, indent=4)
-                print(f"\n📝 Endpoints saved to {output_filename}")
-            except Exception as e:
-                print(f"❌ Error saving endpoints to file: {e}")
-        else:
-            print(f"endpoints_found=false", file=f)
-
+        output_filename = "changed_endpoints.json"
+        try:
+            with open(output_filename, "w") as f:
+                json.dump(all_found_endpoints, f, indent=4)
+            print(f"\n📝 Endpoints saved to {output_filename}")
+        except Exception as e:
+            print(f"❌ Error saving endpoints to file: {e}")
 
 if __name__ == "__main__":
     main()
