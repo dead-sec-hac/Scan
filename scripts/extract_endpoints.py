@@ -133,6 +133,14 @@ def main():
             print(f"\n📝 Endpoints saved to {output_filename}")
         except Exception as e:
             print(f"❌ Error saving endpoints to file: {e}")
+    output_file = os.getenv('GITHUB_OUTPUT')
+    with open(output_file, "a") as f:
+        if all_found_endpoints:
+            print(f"endpoints_found=true", file=f)
+            print("📝 Setting GitHub Actions output: endpoints_found=true")
+        else:
+            print(f"endpoints_found=false", file=f)
+            print("📝 Setting GitHub Actions output: endpoints_found=false")
 
 if __name__ == "__main__":
     main()
