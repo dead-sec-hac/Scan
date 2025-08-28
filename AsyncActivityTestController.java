@@ -1,5 +1,5 @@
 @RestController
-@RequestMapping("/test/async-activity")
+@RequestMapping("/test/async-activit")
 public class AsyncActivityTestController {
 
 @Autowired
