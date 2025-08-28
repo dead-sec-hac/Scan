@@ -2,15 +2,17 @@ name: State-Based API Change Scanner
 
 on:
   schedule:
+    # Run once every day at 03:00 UTC
     - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
-  daily-scan:
+  check-for-changes:
     runs-on: ubuntu-latest
-    
+    outputs:
+      changes_found: ${{ steps.compare_shas.outputs.diff_found }}
     steps:
-      - name: Checkout latest repository code
+      - name: Checkout repository for change detection
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -21,27 +23,47 @@ jobs:
           gh run download --repo ${{ github.repository }} --name last-scanned-commit --dir ./last-scanned-commit || echo "No previous SHA found. This is likely the first run."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Get list of changed files
-        id: get_diff
+
+      - name: Compare current SHA with last scanned SHA
+        id: compare_shas
         run: |
-          echo "diff_found=false" >> $GITHUB_OUTPUT
-          
           LAST_SHA=""
           if [ -f "./last-scanned-commit/last_commit_sha.txt" ]; then
             LAST_SHA=$(cat ./last-scanned-commit/last_commit_sha.txt)
-            echo "Comparing HEAD with last scanned commit: $LAST_SHA"
+            echo "Last scanned commit SHA: $LAST_SHA"
+          fi
+          
+          CURRENT_SHA=${{ github.sha }}
+          echo "Current commit SHA: $CURRENT_SHA"
+
+          if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
+            echo "✅ No new commits found since last scan. Skipping diff."
+            echo "diff_found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "Changes detected. Proceeding with diff."
+          if [ "$LAST_SHA" != "" ]; then
             git diff --name-only $LAST_SHA HEAD > changed_files.txt
           else
-            echo "No previous commit SHA found. Scanning all Java files."
             find . -name "*.java" > changed_files.txt
           fi
-
+          
           if [ -s changed_files.txt ]; then
             echo "diff_found=true" >> $GITHUB_OUTPUT
           else
-            echo "✅ No new changes to scan."
+            echo "diff_found=false" >> $GITHUB_OUTPUT
           fi
+
+  daily-scan:
+    runs-on: ubuntu-latest
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.changes_found == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,39 +71,40 @@ jobs:
           python-version: '3.x'
 
       - name: Run Endpoint Extractor on changed files
-        if: steps.get_diff.outputs.diff_found == 'true'
+        id: extract_endpoints
         run: python scripts/extract_endpoints.py changed_files.txt
 
       - name: Setup Nuclei and Scan Endpoints
-        if: steps.get_diff.outputs.diff_found == 'true'
+        # This is the key line: The 'if' condition checks if endpoints were found.
+        if: steps.extract_endpoints.outputs.endpoints_found == 'true'
         run: |
-          # echo "✨ Installing Nuclei..."
-          # sudo apt-get update && sudo apt-get install -y wget unzip jq
-          # wget -q https://github.com/projectdiscovery/nuclei/releases/download/v2.9.8/nuclei_2.9.8_linux_amd64.zip -O nuclei.zip
-          # unzip nuclei.zip
-          # sudo mv nuclei /usr/local/bin/
+          echo "✨ Installing Nuclei..."
+          sudo apt-get update && sudo apt-get install -y wget unzip jq
+          wget -q https://github.com/projectdiscovery/nuclei/releases/download/v2.9.8/nuclei_2.9.8_linux_amd64.zip -O nuclei.zip
+          unzip nuclei.zip
+          sudo mv nuclei /usr/local/bin/
 
-          # echo "🚀 Running Nuclei scan on detected endpoints..."
-          # if [ -s changed_endpoints.json ]; then
-          #     jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
-          #     nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+          echo "🚀 Running Nuclei scan on detected endpoints..."
+          if [ -s changed_endpoints.json ]; then
+              jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
+              # nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
               
-          #     echo "Nuclei scan complete. Results:"
-          #     if [ -s nuclei_results.txt ]; then
-          #         cat nuclei_results.txt
-          #         exit 1
-          #     else
-          #         echo "✅ No vulnerabilities were found."
-          #     fi
-          # else
-          #     echo "✅ No new endpoints were found to scan."
-          # fi
+              echo "Nuclei scan complete. Results:"
+              if [ -s nuclei_results.txt ]; then
+                  cat nuclei_results.txt
+                  exit 1
+              else
+                  echo "✅ No vulnerabilities were found."
+              fi
+          else
+              echo "✅ No new endpoints were found to scan."
+          fi
 
       - name: Save current commit SHA for next run
         if: success()
         run: |
           echo "${{ github.sha }}" > last_commit_sha.txt
-        
+
       - name: Upload current commit SHA as artifact
         if: success()
         uses: actions/upload-artifact@v4
