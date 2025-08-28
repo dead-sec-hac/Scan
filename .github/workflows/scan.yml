@@ -1,18 +1,15 @@
-name: State-Based API Change Scanner
+name: Consolidated API Change Scanner
 
 on:
   schedule:
-    # Run once every day at 03:00 UTC
     - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
-  check-for-changes:
+  analyze-and-scan: # Single job for all steps
     runs-on: ubuntu-latest
-    outputs:
-      changes_found: ${{ steps.compare_shas.outputs.changes_found }}
     steps:
-      - name: Checkout repository for change detection
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -36,50 +33,50 @@ jobs:
           CURRENT_SHA=${{ github.sha }}
           echo "Current commit SHA: $CURRENT_SHA"
 
-          # Use a direct string comparison to avoid a full git diff if possible
           if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
             echo "changes_found=false" >> $GITHUB_OUTPUT
             echo "✅ No new commits. Skipping analysis and scan."
-            exit 0
+            exit 0 # Exit this step successfully, skipping subsequent steps in this job
           fi
           
           echo "changes_found=true" >> $GITHUB_OUTPUT
-          echo "Changes detected. Proceeding."
+          echo "Changes detected. Proceeding with analysis."
           
           if [ "$LAST_SHA" != "" ]; then
             git diff --name-only $LAST_SHA HEAD > changed_files.txt
           else
             find . -name "*.java" > changed_files.txt
           fi
-          echo "changed files"
-          cat changed_files.txt
           
           if [ -s changed_files.txt ]; then
             echo "files_to_process=true" >> $GITHUB_OUTPUT
           else
             echo "files_to_process=false" >> $GITHUB_OUTPUT
           fi
-          
-  daily-scan:
-    runs-on: ubuntu-latest
-    needs: check-for-changes
-    if: needs.check-for-changes.outputs.changes_found == 'true'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
+      - name: Show Changed Files
+        # This step will only run if changes were found and there are files to process
+        if: steps.compare_shas.outputs.changes_found == 'true' && steps.compare_shas.outputs.files_to_process == 'true'
+        run: |
+          echo "--- Files to be processed ---"
+          cat changed_files.txt
+          echo "----------------------------"
+          
       - name: Set up Python
+        # This step will only run if changes were found and there are files to process
+        if: steps.compare_shas.outputs.changes_found == 'true' && steps.compare_shas.outputs.files_to_process == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Run Endpoint Extractor on changed files
+      - name: Run Endpoint Extractor
         id: extract_endpoints
+        # This step will only run if changes were found and there are files to process
+        if: steps.compare_shas.outputs.changes_found == 'true' && steps.compare_shas.outputs.files_to_process == 'true'
         run: python scripts/extract_endpoints.py changed_files.txt
 
       - name: Setup Nuclei and Scan Endpoints
+        # This step will only run if endpoints were found by the extractor
         if: steps.extract_endpoints.outputs.endpoints_found == 'true'
         run: |
           echo "✨ Installing Nuclei..."
@@ -91,7 +88,7 @@ jobs:
           echo "🚀 Running Nuclei scan on detected endpoints..."
           if [ -s changed_endpoints.json ]; then
               jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
-              # nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+              #nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
 
               echo "Nuclei scan complete. Results:"
               if [ -s nuclei_results.txt ]; then
@@ -105,11 +102,14 @@ jobs:
           fi
 
       - name: Save current commit SHA for next run
+        # This step should always run if the workflow reached this point successfully,
+        # to update the state for the next run.
         if: success()
         run: |
           echo "${{ github.sha }}" > last_commit_sha.txt
 
       - name: Upload current commit SHA as artifact
+        # This step should always run if the workflow reached this point successfully.
         if: success()
         uses: actions/upload-artifact@v4
         with:
