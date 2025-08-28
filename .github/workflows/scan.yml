@@ -51,13 +51,15 @@ jobs:
           else
             find . -name "*.java" > changed_files.txt
           fi
+          echo "changed files"
+          cat changed_files.txt
           
           if [ -s changed_files.txt ]; then
             echo "files_to_process=true" >> $GITHUB_OUTPUT
           else
             echo "files_to_process=false" >> $GITHUB_OUTPUT
           fi
-          cat changed_files.txt
+          
   daily-scan:
     runs-on: ubuntu-latest
     needs: check-for-changes
