@@ -11,7 +11,7 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody Map<String, String> loginRequest) {
         // Login logic
-        return ResponseEntity.ok(Map.of("message", "Logins Successful"));
+        return ResponseEntity.ok(Map.of("message", "Login Successful"));
     }
 
     @PostMapping("/register")
