@@ -45,8 +45,7 @@ jobs:
           
           if [ "$LAST_SHA" != "" ]; then
             # Use your command with grep for efficiency
-            git diff --name-only $LAST_SHA HEAD > changed_files.txt
-            cat changed_files.txt | grep '\.java$'
+            git diff --name-only $LAST_SHA HEAD | grep '\.java$' > changed_files.txt || true
           else
             # Fallback for the first run
             find . -name "*.java" > changed_files.txt
