@@ -43,7 +43,7 @@ jobs:
           echo "Changes detected. Proceeding with analysis."
           
           if [ "$LAST_SHA" != "" ]; then
-            git diff --name-only $LAST_SHA HEAD > changed_files.txt
+            git diff --name-only $LAST_SHA..HEAD | grep '\.java$' > changed_files.txt
           else
             find . -name "*.java" > changed_files.txt
           fi
