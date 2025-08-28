@@ -50,6 +50,7 @@ jobs:
             git diff --name-only $LAST_SHA HEAD > changed_files.txt
           else
             find . -name "*.java" > changed_files.txt
+            cat changed_files.txt
           fi
           
           if [ -s changed_files.txt ]; then
