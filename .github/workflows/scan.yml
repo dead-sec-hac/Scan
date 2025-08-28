@@ -1,66 +1,84 @@
-name: Consolidated API Change Scanner
+name: State-Based API Change Scanner
 
 on:
   schedule:
+    # Run once every day at 03:00 UTC
     - cron: '0 3 * * *'
   workflow_dispatch:
 
 jobs:
-  analyze-and-scan:
+  check-for-changes:
     runs-on: ubuntu-latest
+    outputs:
+      changes_found: ${{ steps.compare_shas.outputs.changes_found }}
+    steps:
+      - name: Checkout repository for change detection
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download last scanned commit SHA
+        id: download_sha
+        run: |
+          gh run download --repo ${{ github.repository }} --name last-scanned-commit --dir ./last-scanned-commit || echo "No previous SHA found. This is likely the first run."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compare current SHA with last scanned SHA
+        id: compare_shas
+        run: |
+          LAST_SHA=""
+          if [ -f "./last-scanned-commit/last_commit_sha.txt" ]; then
+            LAST_SHA=$(cat ./last-scanned-commit/last_commit_sha.txt)
+            echo "Last scanned commit SHA: $LAST_SHA"
+          fi
+          
+          CURRENT_SHA=${{ github.sha }}
+          echo "Current commit SHA: $CURRENT_SHA"
+
+          # Use a direct string comparison to avoid a full git diff if possible
+          if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
+            echo "changes_found=false" >> $GITHUB_OUTPUT
+            echo "✅ No new commits. Skipping analysis and scan."
+            exit 0
+          fi
+          
+          echo "changes_found=true" >> $GITHUB_OUTPUT
+          echo "Changes detected. Proceeding."
+          
+          if [ "$LAST_SHA" != "" ]; then
+            git diff --name-only $LAST_SHA HEAD > changed_files.txt
+          else
+            find . -name "*.java" > changed_files.txt
+          fi
+          
+          if [ -s changed_files.txt ]; then
+            echo "files_to_process=true" >> $GITHUB_OUTPUT
+          else
+            echo "files_to_process=false" >> $GITHUB_OUTPUT
+          fi
+
+  daily-scan:
+    runs-on: ubuntu-latest
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.changes_found == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get and Compare Commit SHAs
-        id: compare_shas
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh run download --repo ${{ github.repository }} --name last-scanned-commit --dir ./last-scanned-commit || echo "No previous SHA found."
-          
-          LAST_SHA=""
-          if [ -f "./last-scanned-commit/last_commit_sha.txt" ]; then
-            LAST_SHA=$(cat ./last-scanned-commit/last_commit_sha.txt)
-          fi
-          
-          CURRENT_SHA=${{ github.sha }}
-          
-          if [ "$LAST_SHA" == "$CURRENT_SHA" ]; then
-            echo "::set-output name=changes_found::false"
-            echo "✅ No new commits. Skipping."
-            exit 0
-          fi
-          
-          echo "::set-output name=changes_found::true"
-          echo "Changes detected. Proceeding."
-          
-          if [ "$LAST_SHA" != "" ]; then
-            # The core change: a single git diff for all changes since the last scan
-            git diff --name-only $LAST_SHA HEAD > changed_files.txt
-          else
-            find . -name "*.java" > changed_files.txt
-          fi
-
-          if [ -s changed_files.txt ]; then
-            echo "::set-output name=files_to_process::true"
-          else
-            echo "::set-output name=files_to_process::false"
-          fi
-      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Run Endpoint Extractor
-        if: steps.compare_shas.outputs.changes_found == 'true' && steps.compare_shas.outputs.files_to_process == 'true'
+      - name: Run Endpoint Extractor on changed files
+        id: extract_endpoints
         run: python scripts/extract_endpoints.py changed_files.txt
 
       - name: Setup Nuclei and Scan Endpoints
-        if: steps.compare_shas.outputs.changes_found == 'true' && steps.compare_shas.outputs.files_to_process == 'true'
+        if: steps.extract_endpoints.outputs.endpoints_found == 'true'
         run: |
           echo "✨ Installing Nuclei..."
           sudo apt-get update && sudo apt-get install -y wget unzip jq
@@ -70,26 +88,26 @@ jobs:
 
           echo "🚀 Running Nuclei scan on detected endpoints..."
           if [ -s changed_endpoints.json ]; then
-            jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
-            #nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
-            
-            echo "Nuclei scan complete. Results:"
-            if [ -s nuclei_results.txt ]; then
-                cat nuclei_results.txt
-                exit 1
-            else
-                echo "✅ No vulnerabilities were found."
-            fi
+              jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
+              # nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+
+              echo "Nuclei scan complete. Results:"
+              if [ -s nuclei_results.txt ]; then
+                  cat nuclei_results.txt
+                  exit 1
+              else
+                  echo "✅ No vulnerabilities were found."
+              fi
           else
-            echo "✅ No new endpoints were found to scan."
+              echo "✅ No new endpoints were found to scan."
           fi
 
-      - name: Save commit SHA for next run
+      - name: Save current commit SHA for next run
         if: success()
         run: |
           echo "${{ github.sha }}" > last_commit_sha.txt
-        
-      - name: Upload commit SHA as artifact
+
+      - name: Upload current commit SHA as artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
