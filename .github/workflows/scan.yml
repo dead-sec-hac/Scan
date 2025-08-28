@@ -75,7 +75,6 @@ jobs:
         run: python scripts/extract_endpoints.py changed_files.txt
 
       - name: Setup Nuclei and Scan Endpoints
-        # This is the key line: The 'if' condition checks if endpoints were found.
         if: steps.extract_endpoints.outputs.endpoints_found == 'true'
         run: |
           echo "✨ Installing Nuclei..."
@@ -87,7 +86,7 @@ jobs:
           echo "🚀 Running Nuclei scan on detected endpoints..."
           if [ -s changed_endpoints.json ]; then
               jq -r '.[].path' changed_endpoints.json > urls_for_nuclei.txt
-              # nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
+              nuclei -l urls_for_nuclei.txt -silent -o nuclei_results.txt
               
               echo "Nuclei scan complete. Results:"
               if [ -s nuclei_results.txt ]; then
